@@ -1,35 +1,107 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import os.path
+from mpl_toolkits import mplot3d
+
 
 output_folder = "output_files"
 dx = 3
 dy = 3
 
+
+def plot_online_3d():
+  decision = 12
+  random = 3
+  discount_factor = 0.9
+  horizon = 4
+  heuristic_weight = 0.0
+  dynamic_type = "ONLINE"
+  dcop_algorithms = ["DPOP"]
+  switching_costs = range(0, 210, 10)
+  time_durations = range(0, 100, 5)
+
+  algorithm_result = {}
+  for pdcop_algorithm in ["FORWARD", "REACT", "HYBRID"]:
+    for dcop_algorithm in dcop_algorithms:
+      df = pd.DataFrame()
+      for switching_cost in switching_costs:
+        for time_duration in time_durations:
+          for instance_id in range(30):
+            output_file = output_folder + "/"
+            output_file += dynamic_type + "/"
+            output_file += pdcop_algorithm + "_" + dcop_algorithm + "/"
+            output_file += "instanceID=" + str(instance_id)
+            output_file += "_x=" + str(decision)
+            output_file += "_y=" + str(random)
+            output_file += "_dx=" + str(dx)
+            output_file += "_dy=" + str(dy)
+            output_file += "_sw=" + str(switching_cost)
+            output_file += "_h=" + str(horizon)
+            output_file += "_discountFactor=" + str(discount_factor)
+            output_file += "_heuristicWeight=" + str(round(heuristic_weight, 1))
+            output_file += "_" + pdcop_algorithm
+            output_file += "_" + dcop_algorithm
+            output_file += "_" + dynamic_type
+            output_file += ".txt"
+
+            if instance_id == 0:
+              result_instance = pd.read_csv(output_file, delimiter="\t")
+            else:
+              result_instance = pd.read_csv(output_file, delimiter="\t", header=None)
+
+            qualities = result_instance.iloc[:, 1]
+            costs = result_instance.iloc[:, 2]
+            times = result_instance.iloc[:, 3]
+            eff_quality = 0
+            for time_step in range(1, horizon + 2):
+              eff_quality = times[time_step] * qualities[time_step - 1] + (time_duration - times[time_step]) * \
+                            qualities[time_step] - time_duration * costs[time_step]
+            df.loc[switching_cost, time_duration] = eff_quality
+    df.to_csv(pdcop_algorithm + ".csv")
+    algorithm_result[pdcop_algorithm] = df
+
+  fig = plt.figure()
+  ax = plt.axes(projection='3d')
+  xx, yy = np.meshgrid(switching_costs, time_durations)
+  # ax.plot3D(xx, yy, zline, 'blue')
+
+  for pdcop_algorithm in ["FORWARD", "HYBRID"]:
+    print(algorithm_result[pdcop_algorithm])
+    result_df = pd.DataFrame()
+    for switching_cost in switching_costs:
+      for time_duration in time_durations:
+        # print()
+        result_df.loc[switching_cost, time_duration] = algorithm_result[pdcop_algorithm].loc[switching_cost, time_duration] - algorithm_result["REACT"].loc[switching_cost, time_duration]
+    # print(result_df)
+
+
 def generate_table_agents():
   discount_factor = 0.9
   horizon = 4
-  dynamic_types = ["FINITE_HORIZON", "INFINITE_HORIZON"]
+  dynamic_types = ["INFINITE_HORIZON", "FINITE_HORIZON"]
   switching_cost = 50
-  # algorithms = [("C_DPOP", "DPOP"),
-  #               ("LS_SDPOP", "DPOP"), ("LS_SDPOP", "MGM"), ("LS_RAND", "MGM"),
-  #               ("FORWARD", "DPOP"), ("FORWARD", "MGM"),
-  #               ("BACKWARD", "DPOP"), ("BACKWARD", "MGM")
-  #               ]
-  algorithms = [("LS_SDPOP", "MGM"), ("FORWARD", "MGM"), ("BACKWARD", "MGM")]
+  algorithms = [("C_DCOP", "DPOP"),
+                ("LS_SDPOP", "DPOP"), ("LS_SDPOP", "MGM"), ("LS_RAND", "DPOP"),
+                ("FORWARD", "DPOP"), ("FORWARD", "MGM"),
+                ("BACKWARD", "DPOP"), ("BACKWARD", "MGM")
+                ]
+  # algorithms = [("LS_SDPOP", "MGM"), ("FORWARD", "MGM"), ("BACKWARD", "MGM")]
   tables = {}
   for dynamic_type in dynamic_types:
     df = pd.DataFrame(columns=algorithms)
     for (pdcop_algorithm, dcop_algorithm) in algorithms:
       if (pdcop_algorithm, dcop_algorithm) == ("LS_SDPOP", "DPOP"):
         heuristic_weight = 0.6
+      elif (pdcop_algorithm, dcop_algorithm) == ("C_DCOP", "DPOP"):
+        heuristic_weight = 0.6
       else:
         heuristic_weight = 0.0
-      for decision in range(10, 30, 5):
+      for decision in range(5, 55, 5):
         output_file = output_folder + "/"
         output_file += dynamic_type + "/"
         output_file += "x=" + str(decision)
-        output_file += "_y=" + str(int(decision/5))
+        output_file += "_y=" + str(int(decision / 5))
         output_file += "_dx=" + str(dx)
         output_file += "_dy=" + str(dy)
         output_file += "_sw=" + str(switching_cost)
@@ -40,13 +112,18 @@ def generate_table_agents():
         output_file += "_" + dcop_algorithm
         output_file += "_" + dynamic_type
         output_file += ".txt"
+
+        if not os.path.isfile(output_file):
+          continue
+
         result_instance = pd.read_csv(output_file, delimiter="\t")
-        # print(result_instance.columns)
-        quality = np.mean(result_instance["Utility"])
-        runtime = np.mean(result_instance["Time (ms)"])
+        print(result_instance.columns)
+        print(output_file)
+        quality = round(np.mean(result_instance["Utility"]), 2)
+        runtime = round(np.mean(result_instance["Time (ms)"]), 2)
         df.loc[decision, (pdcop_algorithm, dcop_algorithm)] = (quality, runtime)
     tables[dynamic_type] = df
-    df.to_csv("dynamic_type" + "csv")
+    df.to_csv(dynamic_type + ".csv")
   print(tables)
 
 
@@ -206,4 +283,4 @@ def plot_heuristic():
 
 
 if __name__ == "__main__":
-  generate_table_agents()
+  plot_online_3d()
