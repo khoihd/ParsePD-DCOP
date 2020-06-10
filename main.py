@@ -3,31 +3,35 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os.path
 from mpl_toolkits import mplot3d
+from mpl_toolkits.mplot3d import axes3d
 
 
 output_folder = "output_files"
-dx = 3
-dy = 3
+dx = 5
+dy = 5
 
 
 def plot_online_3d():
-  decision = 12
-  random = 3
+  decision = 10
+  random = 10
   discount_factor = 0.9
-  horizon = 4
+  horizon = 10
   heuristic_weight = 0.0
   dynamic_type = "ONLINE"
   dcop_algorithms = ["DPOP"]
-  switching_costs = range(0, 210, 10)
-  time_durations = range(0, 100, 5)
+  switching_costs = range(0, 11, 2)
+  time_durations = range(3000, 5001, 100)
+  instances = range(50)
 
-  algorithm_result = {}
-  for pdcop_algorithm in ["FORWARD", "REACT", "HYBRID"]:
+  for pdcop_algorithm in ["REACT", "FORWARD", "HYBRID"]:
+  # for pdcop_algorithm in ["REACT"]:
     for dcop_algorithm in dcop_algorithms:
       df = pd.DataFrame()
       for switching_cost in switching_costs:
         for time_duration in time_durations:
-          for instance_id in range(30):
+          print(switching_cost, time_duration, pdcop_algorithm)
+          avg_eff = 0
+          for instance_id in instances:
             output_file = output_folder + "/"
             output_file += dynamic_type + "/"
             output_file += pdcop_algorithm + "_" + dcop_algorithm + "/"
@@ -45,35 +49,44 @@ def plot_online_3d():
             output_file += "_" + dynamic_type
             output_file += ".txt"
 
-            if instance_id == 0:
-              result_instance = pd.read_csv(output_file, delimiter="\t")
-            else:
-              result_instance = pd.read_csv(output_file, delimiter="\t", header=None)
+            result_instance = pd.read_csv(output_file, delimiter="\t")
 
-            qualities = result_instance.iloc[:, 1]
-            costs = result_instance.iloc[:, 2]
-            times = result_instance.iloc[:, 3]
-            eff_quality = 0
+            qualities = result_instance.iloc[:, 1].astype(float)
+            costs = result_instance.iloc[:, 2].astype(int)
+            solve_times = result_instance.iloc[:, 3].astype(int)
             for time_step in range(1, horizon + 2):
-              eff_quality = times[time_step] * qualities[time_step - 1] + (time_duration - times[time_step]) * \
-                            qualities[time_step] - time_duration * costs[time_step]
-            df.loc[switching_cost, time_duration] = eff_quality
+              if pdcop_algorithm == "REACT":
+                avg_eff += solve_times[time_step] * qualities[time_step - 1] + (
+                    time_duration - solve_times[time_step]) * qualities[time_step] - time_duration * costs[time_step]
+              else:
+                avg_eff += time_duration * (qualities[time_step] - costs[time_step])
+          df.loc[switching_cost, time_duration] = avg_eff / len(instances)
     df.to_csv(pdcop_algorithm + ".csv")
-    algorithm_result[pdcop_algorithm] = df
+    print(pdcop_algorithm)
+    print(df)
 
   fig = plt.figure()
-  ax = plt.axes(projection='3d')
-  xx, yy = np.meshgrid(switching_costs, time_durations)
-  # ax.plot3D(xx, yy, zline, 'blue')
+  # ax = plt.gca(projection='3d')
+  ax = fig.add_subplot(111, projection='3d')
+  xx, yy = np.meshgrid(time_durations, switching_costs)
 
-  for pdcop_algorithm in ["FORWARD", "HYBRID"]:
-    print(algorithm_result[pdcop_algorithm])
+  react_result = pd.read_csv("REACT" + ".csv", index_col=0)
+  react_result.columns = react_result.columns.astype(int)
+  for pdcop_algorithm in ["FORWARD"]:
+    plot_result = pd.read_csv(pdcop_algorithm + ".csv", index_col=0)
+    plot_result.columns = plot_result.columns.astype(int)
     result_df = pd.DataFrame()
     for switching_cost in switching_costs:
       for time_duration in time_durations:
-        # print()
-        result_df.loc[switching_cost, time_duration] = algorithm_result[pdcop_algorithm].loc[switching_cost, time_duration] - algorithm_result["REACT"].loc[switching_cost, time_duration]
-    # print(result_df)
+        result_df.loc[switching_cost, time_duration] = plot_result.loc[switching_cost, time_duration] - react_result.loc[switching_cost, time_duration]
+
+    print(result_df)
+    ax.plot_surface(xx, yy, result_df.to_numpy())
+  ax.set_xlabel("Time Duration")
+  ax.set_ylabel("Switching Cost")
+  ax.set_zlabel("Effective Rewards")
+  plt.title("Different in Effective Reward between FORWARD and REACT")
+  plt.show(block=False)
 
 
 def generate_table_agents():
