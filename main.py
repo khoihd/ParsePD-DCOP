@@ -2,92 +2,146 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import os.path
+import gc
 from mpl_toolkits import mplot3d
 from mpl_toolkits.mplot3d import axes3d
+from pddcop_util import *
 
 
-output_folder = "output_files"
-dx = 5
-dy = 5
+def generate_table_meeting():
+  dx = 5
+  dy = 5
+  horizon = 4
+  switching_cost = 50
+  algorithms = [("FORWARD", "DPOP"),
+                ("BACKWARD", "DPOP"),
+                ("LS_SDPOP", "DPOP"),
+                ("LS_RAND", "DPOP"),
+                ]
+  # algorithms = [("LS_RAND", "DPOP")]
+  dynamic_types = ["FINITE_HORIZON", "INFINITE_HORIZON"]
+  # dynamic_types = ["INFINITE_HORIZON"]
+  switching_costs = 50
+  discount_factor = 0.9
+  instances = range(30)
+  result = {}
+  for dynamic_type in dynamic_types:
+    df = pd.DataFrame(columns=algorithms)
+    for decision in range(4, 11, 2):
+      random = int(decision / 2)
+      for (pdcop_algorithm, dcop_algorithm) in algorithms:
+        if (pdcop_algorithm, dcop_algorithm) == ("LS_SDPOP", "DPOP"):
+          heuristic_weight = 0.6
+        else:
+          heuristic_weight = 0.0
+
+        output_file = instance_file(dynamic_type, pdcop_algorithm, dcop_algorithm, decision, random, dx, dy,
+                                      switching_cost, horizon, discount_factor, heuristic_weight)
+        result_instance = pd.read_csv(output_file, delimiter="\t")
+        satisfied_instance = 0
+        runtimes = []
+        for instance_id in range(len(result_instance["Utility"])):
+          quality = result_instance["Utility"][instance_id]
+          runtime = result_instance["Time (ms)"][instance_id]
+          if quality == "-∞":
+            # print("Negative Infinity")
+            None
+          elif float(quality) < 0:
+            # print("Negative")
+            None
+          else:
+            satisfied_instance = satisfied_instance + 1
+            runtimes.append(runtime)
+        df.loc[decision, (pdcop_algorithm, dcop_algorithm)] = (
+          round(satisfied_instance / len(range(30)) * 100, 2), round(np.average(runtimes)))
+    result[dynamic_type] = df
+    print(dynamic_type)
+    print(df)
+    df.to_csv("meeting_" + lowercase(dynamic_type) + ".csv")
 
 
 def plot_online_3d():
   decision = 10
   random = 10
+  dx = 5
+  dy = 5
   discount_factor = 0.9
   horizon = 10
   heuristic_weight = 0.0
   dynamic_type = "ONLINE"
-  dcop_algorithms = ["DPOP"]
+  dcop_algorithm = "DPOP"
   switching_costs = range(0, 11, 2)
   time_durations = range(3000, 5001, 100)
   instances = range(50)
 
-  for pdcop_algorithm in ["REACT", "FORWARD", "HYBRID"]:
-  # for pdcop_algorithm in ["REACT"]:
-    for dcop_algorithm in dcop_algorithms:
-      df = pd.DataFrame()
-      for switching_cost in switching_costs:
-        for time_duration in time_durations:
-          print(switching_cost, time_duration, pdcop_algorithm)
-          avg_eff = 0
-          for instance_id in instances:
-            output_file = output_folder + "/"
-            output_file += dynamic_type + "/"
-            output_file += pdcop_algorithm + "_" + dcop_algorithm + "/"
-            output_file += "instanceID=" + str(instance_id)
-            output_file += "_x=" + str(decision)
-            output_file += "_y=" + str(random)
-            output_file += "_dx=" + str(dx)
-            output_file += "_dy=" + str(dy)
-            output_file += "_sw=" + str(switching_cost)
-            output_file += "_h=" + str(horizon)
-            output_file += "_discountFactor=" + str(discount_factor)
-            output_file += "_heuristicWeight=" + str(round(heuristic_weight, 1))
-            output_file += "_" + pdcop_algorithm
-            output_file += "_" + dcop_algorithm
-            output_file += "_" + dynamic_type
-            output_file += ".txt"
-
-            result_instance = pd.read_csv(output_file, delimiter="\t")
-
-            qualities = result_instance.iloc[:, 1].astype(float)
-            costs = result_instance.iloc[:, 2].astype(int)
-            solve_times = result_instance.iloc[:, 3].astype(int)
-            for time_step in range(1, horizon + 2):
-              if pdcop_algorithm == "REACT":
-                avg_eff += solve_times[time_step] * qualities[time_step - 1] + (
-                    time_duration - solve_times[time_step]) * qualities[time_step] - time_duration * costs[time_step]
-              else:
-                avg_eff += time_duration * (qualities[time_step] - costs[time_step])
-          df.loc[switching_cost, time_duration] = avg_eff / len(instances)
-    df.to_csv(pdcop_algorithm + ".csv")
-    print(pdcop_algorithm)
-    print(df)
-
-  fig = plt.figure()
-  # ax = plt.gca(projection='3d')
-  ax = fig.add_subplot(111, projection='3d')
-  xx, yy = np.meshgrid(time_durations, switching_costs)
-
-  react_result = pd.read_csv("REACT" + ".csv", index_col=0)
-  react_result.columns = react_result.columns.astype(int)
+  # for pdcop_algorithm in ["FORWARD", "HYBRID"]:
   for pdcop_algorithm in ["FORWARD"]:
-    plot_result = pd.read_csv(pdcop_algorithm + ".csv", index_col=0)
-    plot_result.columns = plot_result.columns.astype(int)
-    result_df = pd.DataFrame()
+    average_diff = pd.DataFrame()
+    max_diff = pd.DataFrame()
     for switching_cost in switching_costs:
       for time_duration in time_durations:
-        result_df.loc[switching_cost, time_duration] = plot_result.loc[switching_cost, time_duration] - react_result.loc[switching_cost, time_duration]
+        print(switching_cost, time_duration, pdcop_algorithm)
+        diff_eff = []
+        for instance_id in instances:
+          proactive_avg = []
+          reactive_avg = []
+          for online_run in range(0, 50):
+            # Get file name
+            proactive_file = instance_file_online(dynamic_type, pdcop_algorithm, dcop_algorithm, instance_id, decision,
+                                                  random, dx, dy, switching_cost, horizon, discount_factor,
+                                                  heuristic_weight, online_run)
+            reactive_file = instance_file_online(dynamic_type, "HYBRID", dcop_algorithm, instance_id, decision, random,
+                                                 dx, dy, switching_cost, horizon, discount_factor, heuristic_weight,
+                                                 online_run)
+            # Read CSV instance
+            proactive_instance = pd.read_csv(proactive_file, delimiter="\t")
+            reactive_instance = pd.read_csv(reactive_file, delimiter="\t")
+            # Compute Effective Reward
+            proactive_eff_reward = effective_reward(proactive_instance, pdcop_algorithm, horizon, time_duration)
+            reactive_eff_reward = effective_reward(reactive_instance, "HYBRID", horizon, time_duration)
+            # Append to the list to compute average later
+            proactive_avg.append(proactive_eff_reward)
+            reactive_avg.append(reactive_eff_reward)
+          diff_eff.append(np.average(proactive_eff_reward) - np.average(reactive_eff_reward))
+        average_diff.loc[switching_cost, time_duration] = np.average(diff_eff)
+        max_diff.loc[switching_cost, time_duration] = np.max(diff_eff)
+    average_diff.to_csv("online_average_" + pdcop_algorithm + "-HYBRID.csv")
+    max_diff.to_csv("online_max_" + pdcop_algorithm + "-HYBRID.csv")
+    print("online_average_" + pdcop_algorithm + "-HYBRID.csv")
+    print(average_diff)
+    print("online_max_" + pdcop_algorithm + "-HYBRID.csv")
+    print(max_diff)
 
-    print(result_df)
-    ax.plot_surface(xx, yy, result_df.to_numpy())
-  ax.set_xlabel("Time Duration")
-  ax.set_ylabel("Switching Cost")
-  ax.set_zlabel("Effective Rewards")
-  plt.title("Different in Effective Reward between FORWARD and REACT")
-  plt.show(block=False)
-
+  tick_size = 8
+  label_size = 8
+  azimuth = -54
+  elevation = 15
+  figsize = (8, 6)
+  type = "average" # or "max"
+  # xx, yy = np.meshgrid(switching_costs, time_durations)
+  # for (pdcop_algorithm, colormap) in [("FORWARD", "Blues"), ("HYBRID", "Greens")]:
+  for (pdcop_algorithm, colormap) in [("FORWARD", "Blues")]:
+    result_df = pd.read_csv("online_" + type + "_" + pdcop_algorithm + "-HYBRID.csv", index_col=0)
+    # fig = plt.figure(figsize=figsize)
+    # ax = fig.add_subplot(111, projection='3d')
+    fig, ax = plt.figure(figsize=figsize, projection='3d')
+    xx, yy = np.meshgrid(time_durations, switching_costs)
+    ax.plot_surface(xx, yy, result_df.to_numpy(), cmap=colormap, edgecolor='none')
+    ax.set_xticklabels(time_durations, fontsize=tick_size)
+    ax.set_yticklabels(switching_costs, fontsize=tick_size)
+    # ax.set_zticks([16, 16.1, 16.2, 16.3, 16.4, 16.5, 16.6])
+    # ax.set_zticklabels([16.0, 16.1, 16.2, 16.3, 16.4, 16.5, 16.6], fontsize=tick_size)
+    ax.set_xlabel("Time Duration", fontsize=label_size)
+    ax.set_ylabel("Switching Cost", fontsize=label_size)
+    ax.set_zlabel("Difference in Effective Rewards", fontsize=label_size)
+    ax.view_init(elev=elevation, azim=azimuth)
+    plt.savefig("online_" + pdcop_algorithm.lower() + "-HYBRID.pdf", bbox_inches='tight')
+  plt.cla()
+  # Clear the current figure.
+  plt.clf()
+  # Closes all the figure windows.
+  plt.close('all')
+  gc.collect()
 
 def generate_table_agents():
   discount_factor = 0.9
@@ -101,6 +155,8 @@ def generate_table_agents():
                 ]
   # algorithms = [("LS_SDPOP", "MGM"), ("FORWARD", "MGM"), ("BACKWARD", "MGM")]
   tables = {}
+  dx = 3
+  dy = 3
   for dynamic_type in dynamic_types:
     df = pd.DataFrame(columns=algorithms)
     for (pdcop_algorithm, dcop_algorithm) in algorithms:
@@ -111,7 +167,7 @@ def generate_table_agents():
       else:
         heuristic_weight = 0.0
       for decision in range(5, 55, 5):
-        output_file = output_folder + "/"
+        output_file = "output_files/"
         output_file += dynamic_type + "/"
         output_file += "x=" + str(decision)
         output_file += "_y=" + str(int(decision / 5))
@@ -136,26 +192,94 @@ def generate_table_agents():
         runtime = round(np.mean(result_instance["Time (ms)"]), 2)
         df.loc[decision, (pdcop_algorithm, dcop_algorithm)] = (quality, runtime)
     tables[dynamic_type] = df
-    df.to_csv(dynamic_type + ".csv")
+    df.to_csv("agent_" + lowercase(dynamic_type) + ".csv")
   print(tables)
 
 
-def plot_switching_cost():
+def plot_horizon():
   marker = -1
+  dx = 3
+  dy = 3
+  decision = 5
+  random = 1
+  switching_cost = 50
+  discount_factor = 0.9
+  for dynamic_type in ["FINITE_HORIZON", "INFINITE_HORIZON"]:
+    fig, ax = plt.subplots()
+    for pdcop_algorithm in ["C_DCOP", "FORWARD", "BACKWARD", "LS_RAND", "LS_SDPOP"]:
+      for dcop_algorithm in ["DPOP", "MGM"]:
+        marker = marker + 1
+        if pdcop_algorithm == "C_DCOP" and dcop_algorithm == "DPOP":
+          horizons = range(2, 4)
+        elif pdcop_algorithm == "C_DCOP" and dcop_algorithm == "MGM":
+          continue
+        elif pdcop_algorithm == "LS_RAND" and dcop_algorithm == "DPOP":
+          continue
+        else:
+          horizons = range(2, 11)
+
+        if pdcop_algorithm == "LS_SDPOP":
+          heuristic_weight = 0.6
+        else:
+          heuristic_weight = 0.0
+
+        quality = []
+        runtime = []
+        for horizon in horizons:
+          output_file = "output_files/"
+          output_file += dynamic_type + "/"
+          output_file += "x=" + str(decision)
+          output_file += "_y=" + str(random)
+          output_file += "_dx=" + str(dx)
+          output_file += "_dy=" + str(dy)
+          output_file += "_sw=" + str(switching_cost)
+          output_file += "_h=" + str(horizon)
+          output_file += "_discountFactor=" + str(discount_factor)
+          output_file += "_heuristicWeight=" + str(round(heuristic_weight, 1))
+          output_file += "_" + pdcop_algorithm
+          output_file += "_" + dcop_algorithm
+          output_file += "_" + dynamic_type
+          output_file += ".txt"
+          result = pd.read_csv(output_file, delimiter="\t")
+          quality.append(np.mean(result.iloc[:, 1]))
+          runtime.append(np.mean(result.iloc[:, 2]))
+          print(pdcop_algorithm + "_" + dcop_algorithm + "_" + dynamic_type)
+        ax.plot(horizons, np.log(runtime), marker="s", label=alg(pdcop_algorithm, dcop_algorithm))
+
+    # Plot legends
+    fig_legend = plt.figure(figsize=(1.5, 1.3))
+    plt.figlegend(*ax.get_legend_handles_labels(), loc='center', ncol=4)
+    fig_legend.savefig("horizon_legend.pdf", bbox_inches='tight')
+    # End plotting legends
+
+    ax.set_xlabel("Horizon")
+    ax.set_ylabel("Runtime (ms) in log scale")
+    # plt.legend(loc='best')
+    ax.set_yticks(range(2, 16, 2))
+    # plt.title(dynamic_type)
+    # plt.show()
+    fig.savefig("horizon_" + lowercase(dynamic_type) + ".pdf", bbox_inches='tight')
+  plt.cla()
+  # Clear the current figure.
+  plt.clf()
+  # Closes all the figure windows.
+  plt.close('all')
+  gc.collect()
+
+def plot_switching_cost():
   decision = 10
   random = 2
+  dx = 3
+  dy = 3
   discount_factor = 0.9
   horizon = 4
   dynamic_types = ["FINITE_HORIZON", "INFINITE_HORIZON"]
-  # dynamic_types = ["INFINITE_HORIZON"]
   algorithms = [("LS_SDPOP", "DPOP"), ("LS_SDPOP", "MGM"), ("LS_RAND", "MGM")]
   for dynamic_type in dynamic_types:
     switching_costs = range(0, 110, 10)
-    f = plt.figure()
-    plt.xlabel("Switching Cost")
-    plt.ylabel("Iteration")
+    fig, ax = plt.subplots()
+
     for (pdcop_algorithm, dcop_algorithm) in algorithms:
-      marker = marker + 1
       if (pdcop_algorithm, dcop_algorithm) == ("LS_SDPOP", "DPOP"):
         heuristic_weight = 0.6
       else:
@@ -164,8 +288,8 @@ def plot_switching_cost():
       plot_iteration = []
       for switching_cost in switching_costs:
         converged_iterations = []
-        for instance_id in range(0, 30, 1):
-          output_file = output_folder + "/"
+        for instance_id in range(30):
+          output_file = "output_files/"
           output_file += dynamic_type + "/"
           output_file += pdcop_algorithm + "_" + dcop_algorithm + "/"
           output_file += "instanceID=" + str(instance_id)
@@ -189,111 +313,76 @@ def plot_switching_cost():
         plot_iteration.append(np.mean(converged_iterations))
       print(len(plot_iteration), plot_iteration)
       print(len(switching_costs), switching_costs)
-      plt.plot(switching_costs, plot_iteration, marker="s", label=pdcop_algorithm + "_" + dcop_algorithm)
-    plt.legend(loc='best')
-    plt.title("Varying switching costs " + dynamic_type)
-    plt.xticks(switching_costs)
-    plt.show()
-    plt.savefig("switching_cost" + dynamic_type + ".pdf", bbox_inches='tight')
+      ax.plot(switching_costs, plot_iteration, marker="s", label=alg(pdcop_algorithm, dcop_algorithm))
 
+    # Plot legends
+    fig_legend = plt.figure(figsize=(1.5, 1.3))
+    plt.figlegend(*ax.get_legend_handles_labels(), loc='center', ncol=3)
+    fig_legend.savefig("switching_cost_legend.pdf", bbox_inches='tight')
+    # End plotting legends
 
-def plot_horizon():
-  marker = -1
-  decision = 10
-  random = 1
-  switching_cost = 50
-  discount_factor = 0.9
-  for dynamic_type in ["FINITE_HORIZON"]:
-    for pdcop_algorithm in ["C_DCOP", "FORWARD", "BACKWARD", "LS_RAND", "LS_SDPOP"]:
-      for dcop_algorithm in ["DPOP", "MGM"]:
-        marker = marker + 1
-        if pdcop_algorithm == "C_DCOP" and dcop_algorithm == "DPOP":
-          horizons = range(2, 4)
-          f = plt.figure()
-          plt.xlabel("Horizon")
-          plt.ylabel("Runtime (ms)")
-        elif pdcop_algorithm == "C_DCOP" and dcop_algorithm == "MGM":
-          continue
-        elif pdcop_algorithm == "LS_RAND" and dcop_algorithm == "DPOP":
-          continue
-        else:
-          horizons = range(2, 11)
-
-        if pdcop_algorithm == "LS_SDPOP":
-          heuristic_weight = 0.6
-        else:
-          heuristic_weight = 0.0
-
-        quality = []
-        runtime = []
-        for horizon in horizons:
-          output_file = output_folder + "/"
-          output_file += dynamic_type + "/"
-          output_file += "x=" + str(decision)
-          output_file += "_y=" + str(random)
-          output_file += "_dx=" + str(dx)
-          output_file += "_dy=" + str(dy)
-          output_file += "_sw=" + str(switching_cost)
-          output_file += "_h=" + str(horizon)
-          output_file += "_discountFactor=" + str(discount_factor)
-          output_file += "_heuristicWeight=" + str(round(heuristic_weight, 1))
-          output_file += "_" + pdcop_algorithm
-          output_file += "_" + dcop_algorithm
-          output_file += "_" + dynamic_type
-          output_file += ".txt"
-          result = pd.read_csv(output_file, delimiter="\t")
-          quality.append(np.mean(result.iloc[:, 1]))
-          runtime.append(np.mean(result.iloc[:, 2]))
-          print(pdcop_algorithm + "_" + dcop_algorithm + "_" + str(runtime))
-        plt.plot(horizons, np.log(runtime), marker=marker, label=pdcop_algorithm + "_" + dcop_algorithm)
-
-    plt.legend(loc='best')
-    plt.yticks(range(2, 16, 2))
-    # plt.yticks(range(0, 1100, 100))
-    plt.title("Varying horizon " + dynamic_type)
-    plt.show()
-    plt.savefig("varying_horizon_" + dynamic_type + ".pdf", bbox_inches='tight')
-
+    ax.set_xlabel("Switching Cost")
+    ax.set_ylabel("Iteration")
+    ax.set_xticks(switching_costs)
+    ax.set_xticklabels(switching_costs)
+    ax.set_yticks(range(9))
+    ax.set_yticklabels(range(9))
+    fig.savefig("switching_cost_" + lowercase(dynamic_type) + ".pdf", bbox_inches='tight')
+    # fig_legend.savefig("switching_cost_legend.pdf", bbox_inches='tight')
+  plt.cla()
+  # Clear the current figure.
+  plt.clf()
+  # Closes all the figure windows.
+  plt.close('all')
+  gc.collect()
 
 def plot_heuristic():
-  quality = []
-  runtime = []
-  for pdcop_algorithm in ["LS_SDPOP"]:
-    for dcop_algorithm in ["DPOP"]:
-      for decision in [10]:
-        for random in [2]:
-          for horizon in [4]:
-            for switching_cost in [50]:
-              for discount_factor in [0.9]:
-                for dynamic_type in ["INFINITE_HORIZON"]:
-                  for heuristic_weight in np.linspace(0, 1, 11):
-                    output_file = output_folder + "/"
-                    output_file += dynamic_type + "/"
-                    output_file += "x=" + str(decision)
-                    output_file += "_y=" + str(random)
-                    output_file += "_dx=" + str(dx)
-                    output_file += "_dy=" + str(dy)
-                    output_file += "_sw=" + str(switching_cost)
-                    output_file += "_h=" + str(horizon)
-                    output_file += "_discountFactor=" + str(discount_factor)
-                    output_file += "_heuristicWeight=" + str(round(heuristic_weight, 1))
-                    output_file += "_" + pdcop_algorithm
-                    output_file += "_" + dcop_algorithm
-                    output_file += "_" + dynamic_type
-                    output_file += ".txt"
-                    result = pd.read_csv(output_file, delimiter="\t")
-                    quality.append(np.mean(result.iloc[0:29, 1]))
-                    runtime.append(np.mean(result.iloc[0:29, 2]))
-                    print(quality)
-                    print(runtime)
-                    f = plt.figure()
-                    plt.plot(runtime)
-                    plt.xlabel("Heuristic Weights")
-                    plt.ylabel("Runtime (ms)")
-                    plt.title("Varying heuristic weights " + dynamic_type)
-                    plt.show()
-                    f.savefig("Heuristic_X=10_Y=2_" + dynamic_type + ".pdf", bbox_inches='tight')
+  dx = 3
+  dy = 3
+  decision = 10
+  random = 2
+  horizon = 4
+  switching_cost = 50
+  discount_factor = 0.9
+  for dynamic_type in ["INFINITE_HORIZON", "FINITE_HORIZON"]:
+    quality = []
+    runtime = []
+    for heuristic_weight in np.linspace(0, 1, 11):
+      output_file = "output_files/"
+      output_file += dynamic_type + "/"
+      output_file += "x=" + str(decision)
+      output_file += "_y=" + str(random)
+      output_file += "_dx=" + str(dx)
+      output_file += "_dy=" + str(dy)
+      output_file += "_sw=" + str(switching_cost)
+      output_file += "_h=" + str(horizon)
+      output_file += "_discountFactor=" + str(discount_factor)
+      output_file += "_heuristicWeight=" + str(round(heuristic_weight, 1))
+      output_file += "_" + "LS_SDPOP"
+      output_file += "_" + "DPOP"
+      output_file += "_" + dynamic_type
+      output_file += ".txt"
+      result = pd.read_csv(output_file, delimiter="\t")
+      quality.append(np.mean(result.iloc[0:29, 1]))
+      runtime.append(np.mean(result.iloc[0:29, 2]))
+      print(quality)
+      print(runtime)
+    fig, ax = plt.figure()
+    ax.plot(runtime, marker="s")
+    ax.set_xlabel("Heuristic Weights")
+    ax.set_ylabel("Runtime (ms)")
+    # plt.title(dynamic_type)
+    ax.set_yticks(range(250, 501, 50))
+    # plt.show()
+    fig.savefig("heuristic_" + lowercase(dynamic_type) + ".pdf", bbox_inches='tight')
+  plt.cla()
+  # Clear the current figure.
+  plt.clf()
+  # Closes all the figure windows.
+  plt.close('all')
+  gc.collect()
 
 
 if __name__ == "__main__":
-  plot_online_3d()
+  plot_horizon()
+  # generate_table_meeting()
