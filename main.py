@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os.path
 import gc
+import math
 from mpl_toolkits import mplot3d
 from mpl_toolkits.mplot3d import axes3d
 from pddcop_util import *
@@ -13,10 +14,9 @@ def generate_table_meeting():
   dy = 5
   horizon = 4
   switching_cost = 50
-  algorithms = [("FORWARD", "DPOP"),
-                ("BACKWARD", "DPOP"),
-                ("LS_SDPOP", "DPOP"),
-                ("LS_RAND", "DPOP"),
+  algorithms = [("LS_SDPOP", "DPOP"), ("LS_SDPOP", "MGM"), ("LS_RAND", "DPOP"),
+                ("FORWARD", "DPOP"), ("FORWARD", "MGM"),
+                ("BACKWARD", "DPOP"), ("BACKWARD", "MGM")
                 ]
   # algorithms = [("LS_RAND", "DPOP")]
   dynamic_types = ["FINITE_HORIZON", "INFINITE_HORIZON"]
@@ -44,16 +44,22 @@ def generate_table_meeting():
           quality = result_instance["Utility"][instance_id]
           runtime = result_instance["Time (ms)"][instance_id]
           if quality == "-∞":
-            # print("Negative Infinity")
+            print("Negative Infinity")
             None
           elif float(quality) < 0:
-            # print("Negative")
+            print("Negative")
+            None
+          elif math.isnan(float(quality)):
+            print("Not a Number")
             None
           else:
             satisfied_instance = satisfied_instance + 1
             runtimes.append(runtime)
-        df.loc[decision, (pdcop_algorithm, dcop_algorithm)] = (
-          round(satisfied_instance / len(range(30)) * 100, 2), round(np.average(runtimes)))
+        if satisfied_instance > 0:
+          df.loc[decision, (pdcop_algorithm, dcop_algorithm)] = (
+            int(satisfied_instance / len(range(30)) * 100), int(np.average(runtimes)))
+        else:
+          df.loc[decision, (pdcop_algorithm, dcop_algorithm)] = (0, 0)
     result[dynamic_type] = df
     print(dynamic_type)
     print(df)
@@ -266,6 +272,7 @@ def plot_horizon():
   plt.close('all')
   gc.collect()
 
+
 def plot_switching_cost():
   decision = 10
   random = 2
@@ -274,10 +281,13 @@ def plot_switching_cost():
   discount_factor = 0.9
   horizon = 4
   dynamic_types = ["FINITE_HORIZON", "INFINITE_HORIZON"]
-  algorithms = [("LS_SDPOP", "DPOP"), ("LS_SDPOP", "MGM"), ("LS_RAND", "MGM")]
+  algorithms = [("LS_SDPOP", "DPOP"), ("LS_SDPOP", "MGM"), ("LS_RAND", "DPOP")]
+  # fig_size = (4, 3)
   for dynamic_type in dynamic_types:
     switching_costs = range(0, 110, 10)
-    fig, ax = plt.subplots()
+    fig_iteration, ax_iteration = plt.subplots()
+    fig_runtime, ax_runtime = plt.subplots()
+    fig_quality, ax_quality = plt.subplots()
 
     for (pdcop_algorithm, dcop_algorithm) in algorithms:
       if (pdcop_algorithm, dcop_algorithm) == ("LS_SDPOP", "DPOP"):
@@ -285,9 +295,14 @@ def plot_switching_cost():
       else:
         heuristic_weight = 0.0
 
+      print(dynamic_type, pdcop_algorithm, dcop_algorithm)
       plot_iteration = []
+      plot_runtimes = []
+      plot_qualities = []
       for switching_cost in switching_costs:
         converged_iterations = []
+        converged_runtimes = []
+        converged_qualities = []
         for instance_id in range(30):
           output_file = "output_files/"
           output_file += dynamic_type + "/"
@@ -309,32 +324,151 @@ def plot_switching_cost():
           for row in range(0, result_instance.shape[0] - 1):
             if result_instance["Utility"][row] == result_instance["Utility"][row + 1]:
               converged_iterations.append(result_instance["Iteration"][row] + 1)
+              converged_runtimes.append(result_instance["Time (ms)"][row])
+              converged_qualities.append(result_instance["Utility"][row])
               break
         plot_iteration.append(np.mean(converged_iterations))
-      print(len(plot_iteration), plot_iteration)
-      print(len(switching_costs), switching_costs)
-      ax.plot(switching_costs, plot_iteration, marker="s", label=alg(pdcop_algorithm, dcop_algorithm))
+        plot_runtimes.append(np.mean(converged_runtimes))
+        plot_qualities.append(np.mean(converged_qualities))
+      ax_iteration.plot(switching_costs, plot_iteration, marker="s", label=alg(pdcop_algorithm, dcop_algorithm))
+      ax_runtime.plot(switching_costs, plot_runtimes, marker="o", label=alg(pdcop_algorithm, dcop_algorithm))
+      ax_quality.plot(switching_costs, plot_qualities, marker="x", label=alg(pdcop_algorithm, dcop_algorithm))
+    # Plot switching costs
+    ax_iteration.set_xlabel("Switching Cost")
+    ax_iteration.set_ylabel("Number of Iterations")
+    ax_iteration.set_xticks(switching_costs)
+    ax_iteration.set_xticklabels(switching_costs)
+    ax_iteration.set_yticks(range(9))
+    ax_iteration.set_yticklabels(range(9))
+    fig_iteration.savefig("switching_cost_iteration_" + lowercase(dynamic_type) + ".pdf", bbox_inches='tight')
+
+    # Plot runtimes
+    ax_runtime.set_xlabel("Switching Cost")
+    ax_runtime.set_ylabel("Runtime (ms)")
+    ax_runtime.set_xticks(switching_costs)
+    ax_runtime.set_xticklabels(switching_costs)
+    ax_runtime.set_yticks(range(200, 1400, 200))
+    ax_runtime.set_yticklabels(range(200, 1400, 200))
+    fig_runtime.savefig("switching_cost_runtime_" + lowercase(dynamic_type) + ".pdf", bbox_inches='tight')
+
+    # Plot runtimes
+    ax_quality.set_xlabel("Switching Cost")
+    ax_quality.set_ylabel("Solution Quality")
+    ax_quality.set_xticks(switching_costs)
+    ax_quality.set_xticklabels(switching_costs)
+    # ax_runtime.set_yticks(range(200, 1400, 200))
+    # ax_runtime.set_yticklabels(range(200, 1400, 200))
+    fig_quality.savefig("switching_cost_quality_" + lowercase(dynamic_type) + ".pdf", bbox_inches='tight')
 
     # Plot legends
     fig_legend = plt.figure(figsize=(1.5, 1.3))
-    plt.figlegend(*ax.get_legend_handles_labels(), loc='center', ncol=3)
-    fig_legend.savefig("switching_cost_legend.pdf", bbox_inches='tight')
+    # Erase maker in handler
+    for handler in ax_iteration.get_legend_handles_labels()[0]:
+      handler.set_marker(None)
+    plt.figlegend(*ax_iteration.get_legend_handles_labels(), loc='center', ncol=3)
+    fig_legend.savefig("switching_cost_legend_no_marker.pdf", bbox_inches='tight')
     # End plotting legends
-
-    ax.set_xlabel("Switching Cost")
-    ax.set_ylabel("Iteration")
-    ax.set_xticks(switching_costs)
-    ax.set_xticklabels(switching_costs)
-    ax.set_yticks(range(9))
-    ax.set_yticklabels(range(9))
-    fig.savefig("switching_cost_" + lowercase(dynamic_type) + ".pdf", bbox_inches='tight')
-    # fig_legend.savefig("switching_cost_legend.pdf", bbox_inches='tight')
   plt.cla()
-  # Clear the current figure.
   plt.clf()
-  # Closes all the figure windows.
   plt.close('all')
   gc.collect()
+
+
+def plot_switching_cost_subplot():
+  decision = 10
+  random = 2
+  dx = 3
+  dy = 3
+  discount_factor = 0.9
+  horizon = 4
+  dynamic_types = ["FINITE_HORIZON", "INFINITE_HORIZON"]
+  algorithms = [("LS_SDPOP", "DPOP"), ("LS_SDPOP", "MGM"), ("LS_RAND", "DPOP")]
+  switching_costs = range(0, 110, 10)
+
+  fig, axs = plt.subplots(2, 2)
+  fig.set_figheight(3)
+  fig.set_figwidth(10)
+  axe_index = 0
+  for dynamic_type in dynamic_types:
+    for (pdcop_algorithm, dcop_algorithm) in algorithms:
+      if (pdcop_algorithm, dcop_algorithm) == ("LS_SDPOP", "DPOP"):
+        heuristic_weight = 0.6
+      else:
+        heuristic_weight = 0.0
+
+      plot_iteration = []
+      plot_runtimes = []
+      plot_qualities = []
+      for switching_cost in switching_costs:
+        converged_iterations = []
+        converged_runtimes = []
+        converged_qualities = []
+        for instance_id in range(30):
+          output_file = "output_files/"
+          output_file += dynamic_type + "/"
+          output_file += pdcop_algorithm + "_" + dcop_algorithm + "/"
+          output_file += "instanceID=" + str(instance_id)
+          output_file += "_x=" + str(decision)
+          output_file += "_y=" + str(random)
+          output_file += "_dx=" + str(dx)
+          output_file += "_dy=" + str(dy)
+          output_file += "_sw=" + str(switching_cost)
+          output_file += "_h=" + str(horizon)
+          output_file += "_discountFactor=" + str(discount_factor)
+          output_file += "_heuristicWeight=" + str(round(heuristic_weight, 1))
+          output_file += "_" + pdcop_algorithm
+          output_file += "_" + dcop_algorithm
+          output_file += "_" + dynamic_type
+          output_file += ".txt"
+          result_instance = pd.read_csv(output_file, delimiter="\t")
+          for row in range(0, result_instance.shape[0] - 1):
+            if result_instance["Utility"][row] == result_instance["Utility"][row + 1]:
+              converged_iterations.append(result_instance["Iteration"][row] + 1)
+              converged_runtimes.append(result_instance["Time (ms)"][row])
+              converged_qualities.append(result_instance["Utility"][row])
+              break
+        plot_iteration.append(np.mean(converged_iterations))
+        plot_runtimes.append(np.mean(converged_runtimes))
+        plot_qualities.append(np.mean(converged_qualities))
+
+      print(len(plot_iteration), plot_iteration)
+      print(len(switching_costs), switching_costs)
+      ax_iteration = axs[0 ,axe_index]
+      ax_runtime = axs[1, axe_index]
+      ax_iteration.plot(switching_costs, plot_iteration, marker="s", label=alg(pdcop_algorithm, dcop_algorithm))
+      ax_runtime.plot(switching_costs, plot_runtimes, marker="o", label=alg(pdcop_algorithm, dcop_algorithm))
+
+    # Switching costs
+    ax_iteration.set_xlabel("Switching Cost")
+    ax_iteration.set_ylabel("Number of Iterations")
+    ax_iteration.set_xticks(switching_costs)
+    ax_iteration.set_xticklabels(switching_costs)
+    ax_iteration.set_yticks(range(9))
+    ax_iteration.set_yticklabels(range(9))
+    # Runtime
+    ax_runtime.set_xlabel("Switching Cost")
+    ax_runtime.set_ylabel("Runtime (ms)")
+    ax_runtime.set_xticks(switching_costs)
+    ax_runtime.set_xticklabels(switching_costs)
+    ax_runtime.set_yticks(range(200, 1400, 200))
+    ax_runtime.set_yticklabels(range(200, 1400, 200))
+    axe_index = axe_index + 1;
+  fig.tight_layout()
+  fig.savefig("switching_cost.pdf", bbox_inches='tight')
+
+  # Plot legends
+  fig_legend = plt.figure(figsize=(1.5, 1.3))
+  # Erase maker in handler
+  for handler in ax_iteration.get_legend_handles_labels()[0]:
+    handler.set_marker(None)
+  plt.figlegend(*ax_iteration.get_legend_handles_labels(), loc='center', ncol=3)
+  fig_legend.savefig("switching_cost_legend_no_marker.pdf", bbox_inches='tight')
+  # End plotting legends
+  plt.cla()
+  plt.clf()
+  plt.close('all')
+  gc.collect()
+
 
 def plot_heuristic():
   dx = 3
@@ -384,5 +518,5 @@ def plot_heuristic():
 
 
 if __name__ == "__main__":
-  plot_horizon()
-  # generate_table_meeting()
+  generate_table_meeting()
+
