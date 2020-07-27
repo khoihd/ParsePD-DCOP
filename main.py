@@ -1,11 +1,3 @@
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import os.path
-import gc
-import math
-from mpl_toolkits import mplot3d
-from mpl_toolkits.mplot3d import axes3d
 from pddcop_util import *
 
 
@@ -75,79 +67,59 @@ def plot_online_3d():
   horizon = 10
   heuristic_weight = 0.0
   dynamic_type = "ONLINE"
-  dcop_algorithm = "DPOP"
-  switching_costs = range(0, 11, 2)
-  time_durations = range(3000, 5001, 100)
-  instances = range(50)
 
-  # for pdcop_algorithm in ["FORWARD", "HYBRID"]:
-  for pdcop_algorithm in ["FORWARD"]:
+  pddcop_algorithms = ["FORWARD", "HYBRID"]
+  # dcop_algorithms = ["DPOP"]
+  dcop_algorithms = ["MGM"]
+
+  # topologies = ["random", "meeting"]
+  topologies = ["random"]
+  switching_costs = range(0, 11, 2)
+  time_durations = range(2000, 4001, 100)
+  instances = range(30)
+
+  online_average = "online_average_"
+  online_max = "online_max_"
+  for pdcop_algorithm, dcop_algorithm, topology in itertools.product(pddcop_algorithms, dcop_algorithms, topologies):
+    # break
+
     average_diff = pd.DataFrame()
     max_diff = pd.DataFrame()
     for switching_cost in switching_costs:
       for time_duration in time_durations:
-        print(switching_cost, time_duration, pdcop_algorithm)
+        print(switching_cost, time_duration, dcop_algorithm, pdcop_algorithm, topology)
         diff_eff = []
         for instance_id in instances:
           proactive_avg = []
           reactive_avg = []
-          for online_run in range(0, 50):
+          for online_run in range(1):
             # Get file name
             proactive_file = instance_file_online(dynamic_type, pdcop_algorithm, dcop_algorithm, instance_id, decision,
                                                   random, dx, dy, switching_cost, horizon, discount_factor,
-                                                  heuristic_weight, online_run)
-            reactive_file = instance_file_online(dynamic_type, "HYBRID", dcop_algorithm, instance_id, decision, random,
+                                                  heuristic_weight, online_run, topology)
+            reactive_file = instance_file_online(dynamic_type, "REACT", dcop_algorithm, instance_id, decision, random,
                                                  dx, dy, switching_cost, horizon, discount_factor, heuristic_weight,
-                                                 online_run)
+                                                 online_run, topology)
             # Read CSV instance
             proactive_instance = pd.read_csv(proactive_file, delimiter="\t")
             reactive_instance = pd.read_csv(reactive_file, delimiter="\t")
             # Compute Effective Reward
-            proactive_eff_reward = effective_reward(proactive_instance, pdcop_algorithm, horizon, time_duration)
-            reactive_eff_reward = effective_reward(reactive_instance, "HYBRID", horizon, time_duration)
+            proactive_eff_reward = effective_reward(proactive_instance, pdcop_algorithm, horizon, time_duration, dcop_algorithm, topology)
+            reactive_eff_reward = effective_reward(reactive_instance, "REACT", horizon, time_duration, dcop_algorithm, topology)
             # Append to the list to compute average later
             proactive_avg.append(proactive_eff_reward)
             reactive_avg.append(reactive_eff_reward)
           diff_eff.append(np.average(proactive_eff_reward) - np.average(reactive_eff_reward))
         average_diff.loc[switching_cost, time_duration] = np.average(diff_eff)
         max_diff.loc[switching_cost, time_duration] = np.max(diff_eff)
-    average_diff.to_csv("online_average_" + pdcop_algorithm + "-HYBRID.csv")
-    max_diff.to_csv("online_max_" + pdcop_algorithm + "-HYBRID.csv")
-    print("online_average_" + pdcop_algorithm + "-HYBRID.csv")
-    print(average_diff)
-    print("online_max_" + pdcop_algorithm + "-HYBRID.csv")
-    print(max_diff)
+    # print(online_average + online_alg(pdcop_algorithm, dcop_algorithm) + ".csv")
+    average_diff.to_csv(online_average + online_alg(pdcop_algorithm, dcop_algorithm, topology) + ".csv")
+    max_diff.to_csv(online_max + online_alg(pdcop_algorithm, dcop_algorithm, topology) + ".csv")
 
-  tick_size = 8
-  label_size = 8
-  azimuth = -54
-  elevation = 15
-  figsize = (8, 6)
-  type = "average" # or "max"
-  # xx, yy = np.meshgrid(switching_costs, time_durations)
-  # for (pdcop_algorithm, colormap) in [("FORWARD", "Blues"), ("HYBRID", "Greens")]:
-  for (pdcop_algorithm, colormap) in [("FORWARD", "Blues")]:
-    result_df = pd.read_csv("online_" + type + "_" + pdcop_algorithm + "-HYBRID.csv", index_col=0)
-    # fig = plt.figure(figsize=figsize)
-    # ax = fig.add_subplot(111, projection='3d')
-    fig, ax = plt.figure(figsize=figsize, projection='3d')
-    xx, yy = np.meshgrid(time_durations, switching_costs)
-    ax.plot_surface(xx, yy, result_df.to_numpy(), cmap=colormap, edgecolor='none')
-    ax.set_xticklabels(time_durations, fontsize=tick_size)
-    ax.set_yticklabels(switching_costs, fontsize=tick_size)
-    # ax.set_zticks([16, 16.1, 16.2, 16.3, 16.4, 16.5, 16.6])
-    # ax.set_zticklabels([16.0, 16.1, 16.2, 16.3, 16.4, 16.5, 16.6], fontsize=tick_size)
-    ax.set_xlabel("Time Duration", fontsize=label_size)
-    ax.set_ylabel("Switching Cost", fontsize=label_size)
-    ax.set_zlabel("Difference in Effective Rewards", fontsize=label_size)
-    ax.view_init(elev=elevation, azim=azimuth)
-    plt.savefig("online_" + pdcop_algorithm.lower() + "-HYBRID.pdf", bbox_inches='tight')
-  plt.cla()
-  # Clear the current figure.
-  plt.clf()
-  # Closes all the figure windows.
-  plt.close('all')
-  gc.collect()
+  for pdcop_algorithm, dcop_algorithm, topology in itertools.product(pddcop_algorithms, dcop_algorithms, topologies):
+    plot_3d(time_durations, switching_costs, pdcop_algorithm, dcop_algorithm, topology)
+
+
 
 def generate_table_agents():
   discount_factor = 0.9
@@ -518,5 +490,5 @@ def plot_heuristic():
 
 
 if __name__ == "__main__":
-  generate_table_meeting()
+  plot_online_3d()
 
