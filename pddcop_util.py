@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os.path
 import gc
+import copy
 import math
 import itertools
 from mpl_toolkits import mplot3d
@@ -41,11 +42,13 @@ def online_alg(pddcop_alg, dcop_alg, topology):
 
 
 def instance_file_online(dynamic_type, pdcop_algorithm, dcop_algorithm, instance_id, decision, random, dx, dy,
-                         switching_cost, horizon, discount_factor, heuristic_weight, online_run, topology):
+                         switching_cost, horizon, discount_factor, heuristic_weight, online_run, topology, onlineRunPrefix):
   output_file = "output_files/"
   output_file += topology + "/"
   output_file += dynamic_type + "/"
   output_file += pdcop_algorithm + "_" + dcop_algorithm + "/"
+  if onlineRunPrefix:
+    output_file += "OnlineRun=" + str(online_run) + "_"
   output_file += "instanceID=" + str(instance_id)
   output_file += "_x=" + str(decision)
   output_file += "_y=" + str(random)
@@ -127,7 +130,6 @@ def effective_reward(result_instance, pdcop_algorithm, horizon, time_duration, d
   solve_times = result_instance.iloc[first_time_step - 1:, 3].astype(int)
   reward = 0
 
-  # for time_step in range(1, horizon + 2):
   for time_step in range(first_time_step, horizon + 2):
     if pdcop_algorithm == "REACT":
       reward += solve_times[time_step] * qualities[time_step - 1] + (
@@ -135,10 +137,21 @@ def effective_reward(result_instance, pdcop_algorithm, horizon, time_duration, d
     else:
       reward += time_duration * (qualities[time_step] - costs[time_step])
 
+  if topology == "meeting" and dcop_algorithm != "MGM":
+    if pdcop_algorithm == "REACT":
+      reward += 0
+    else:
+      reward += time_duration * (result_instance.iloc[0, 1].astype(float) - result_instance.iloc[0, 2].astype(int))
+
   return reward
 
 
 def plot_3d(time_durations, switching_costs, pdcop_algorithm, dcop_algorithm, topology):
+  if switching_costs == range(0, 101, 10):
+    suffix = "_100"
+  elif switching_costs == range(0, 11, 2):
+    suffix = ""
+
   print(time_durations, switching_costs, pdcop_algorithm, dcop_algorithm, topology)
   online_average = "online_average_"
   fig_size = (10, 6)
@@ -146,33 +159,45 @@ def plot_3d(time_durations, switching_costs, pdcop_algorithm, dcop_algorithm, to
   label_size = 10
 
   azimuth, elevation = get_3d_par(dcop_algorithm, topology)
-  # zticks, z_precision = get_z_par(dcop_algorithm, topology)
+  zticks, zlabels, z_precision = get_z_par(dcop_algorithm, topology, suffix)
 
-  result_df = pd.read_csv(online_average + online_alg(pdcop_algorithm, dcop_algorithm, topology) + ".csv", index_col=0)
+  result_df = pd.read_csv(online_average + online_alg(pdcop_algorithm, dcop_algorithm, topology) + suffix + ".csv", index_col=0)
   fig = plt.figure(figsize=fig_size)
   ax = fig.add_subplot(111, projection='3d')
   xx, yy = np.meshgrid(time_durations, switching_costs)
-  print(sign_log(result_df.to_numpy()))
-  # ax.plot_surface(xx, yy, np.log(result_df.to_numpy()), cmap=color_map(pdcop_algorithm), edgecolor='none')
+  print(online_average + online_alg(pdcop_algorithm, dcop_algorithm, topology) + ".csv")
   ax.plot_surface(xx, yy, result_df.to_numpy(), cmap=color_map(pdcop_algorithm), edgecolor='none')
   # ax.plot_surface(xx, yy, sign_log(result_df.to_numpy()), cmap=color_map(pdcop_algorithm), edgecolor='none')
+  print(result_df.to_numpy())
+  print(sign_log(result_df.to_numpy()))
   ax.set_xticks([time_durations[i] for i in range(0, len(time_durations), 4)])
   ax.set_xticklabels([time_durations[i] for i in range(0, len(time_durations), 4)], fontsize=tick_size)
+  # ax.set_xticks(time_durations)
+  # ax.set_xticklabels(time_durations)
   ax.set_yticks(switching_costs)
   ax.set_yticklabels(switching_costs, fontsize=tick_size)
-  # ax.set_zticks(zticks)
-  # ax.set_zticklabels([z_precision % x for x in zticks], fontsize=tick_size)
+
+  if suffix == "":
+    # ax.set_zticks(zticks)
+    # ax.set_zticklabels(zlabels)
+    # ax.set_zticklabels([z_precision % x for x in zlabels], fontsize=tick_size)
+    None
+  elif suffix == "_100":
+    ax.set_zticks(zticks)
+    ax.set_zticklabels(zlabels)
+    None
+
   ax.set_xlabel("Time Duration", fontsize=label_size)
   ax.set_ylabel("Switching Cost", fontsize=label_size)
-  ax.set_zlabel("Difference in Effective Utilities", fontsize=label_size)
+  ax.set_zlabel("Difference in Effective Utilities of (" + get_3d_alg(pdcop_algorithm, dcop_algorithm) + " - " + get_3d_alg("", dcop_algorithm) + ")", fontsize=label_size)
   ax.view_init(elev=elevation, azim=azimuth)
-  plt.savefig(online_average + online_alg(pdcop_algorithm, dcop_algorithm, topology) + ".pdf", bbox_inches='tight')
+  plt.savefig(online_average + online_alg(pdcop_algorithm, dcop_algorithm, topology) + suffix + ".pdf", bbox_inches='tight')
   # plt.show()
-  print("PLOTTING=====" + online_average + online_alg(pdcop_algorithm, dcop_algorithm, topology) + ".pdf")
-  plt.cla()
-  plt.clf()
-  plt.close('all')
-  gc.collect()
+  print("PLOTTING=====" + online_average + online_alg(pdcop_algorithm, dcop_algorithm, topology) + suffix + ".pdf")
+  # plt.cla()
+  # plt.clf()
+  # plt.close('all')
+  # gc.collect()
 
 
 def color_map(pddcop_algorithm):
@@ -183,29 +208,61 @@ def color_map(pddcop_algorithm):
 
 # Return azimuth, elevation
 def get_3d_par(dcop_algorithm, instance):
-  print(dcop_algorithm, instance)
   if (dcop_algorithm, instance) == ("DPOP", "random"):
+    return -48, 12
+  if (dcop_algorithm, instance) == ("MGM", "random"):
+    # return -27, 16
     return -48, 12
 
   return -48, 12
 
 
-# return zticks
-def get_z_par(dcop_algorithm, instance):
-  if (dcop_algorithm, instance) == ("DPOP", "random"):
-    return np.arange(16.8, 17.01, 0.05), "%.2f"
-  if (dcop_algorithm, instance) == ("DPOP", "meeting"):
-    return np.arange(11, 15.01, 1), "%.0f"
+def get_3d_alg(pddcop_algorithm, dcop_algorithm):
+  if pddcop_algorithm == "FORWARD":
+      return "F-" + dcop_algorithm
 
-  return np.arange(16.8, 17.01, 0.05)
+  if pddcop_algorithm == "HYBRID":
+    if dcop_algorithm == "DPOP":
+      return "Hy-DPOP"
+    elif dcop_algorithm == "MGM":
+      return "H-MGM"
+
+  if pddcop_algorithm == "": # Reactive
+    return "R-" + dcop_algorithm
+
+
+# return zticks
+def get_z_par(dcop_algorithm, instance, suffix):
+  if suffix == "":
+    if (dcop_algorithm, instance) == ("DPOP", "random"):
+      # return np.arange(16.75, 17.01, 0.05), list(np.arange(16.8, 17.06, 0.05)), "%.2f"
+      return np.arange(2e7, 2.5e7, 0.1e7), ["2.0e7", "2.1e7", "2.2e7", "2.3e7", "2.4e7"], "%.2f"
+    if (dcop_algorithm, instance) == ("MGM", "random"):
+      # return np.arange(-15.4, -14.39, 0.2), list(np.arange(-15.4, -14.39, 0.2)), "%.2f"
+      return np.arange(-5.5e6, -1.4e6, 1e6), ["-5.5e6", "-4.5e6", "-3.5e6", "-2.5e6", "-1.5e6"], "%.2f"
+    if (dcop_algorithm, instance) == ("DPOP", "meeting"):
+      # return list(np.arange(-15.8, -15, 0.2)), list(np.arange(-15.8, -15, 0.2)), "%.2f"
+      return np.arange(-7.5e6, -3.4e6, 1e6), ["-7.5e6", "-6.5e6", "-4.5e6", "-4.5e6", "-3.5e6"], "%.2f"
+    return np.arange(16.8, 17.01, 0.05)
+
+  elif suffix == "_100":
+    if (dcop_algorithm, instance) == ("DPOP", "random"):
+      return np.arange(2e7, 7e7, 1e7), ["2.0e7", "3.0e7", "4.0e7", "5.0e7", "6.0e7"], "%.2f"
+    if (dcop_algorithm, instance) == ("MGM", "random"):
+      return np.arange(-5e6, 4e6, 2e6), ["-5.0e6", "-3.0e6", "-1.0e6", "1.0e6", "3.0e6"], "%.2f"
+    if (dcop_algorithm, instance) == ("DPOP", "meeting"):
+      return np.arange(0e7, 5e7, 1e7), ["0.0e7", "1.0e7", "2.0e7", "3.0e7", "4.0e7"], "%.2f"
+
 
 
 def sign_log(value_ndarray):
-  for i, x in np.ndenumerate(value_ndarray):
-    if x > 0:
-      value_ndarray[i] = np.log(x)
-    else:
-      value_ndarray[i] = -np.log(np.abs(x))
+  temp = copy.deepcopy(value_ndarray)
 
-  return value_ndarray
+  for i, x in np.ndenumerate(temp):
+    if x > 0:
+      temp[i] = np.log(x)
+    else:
+      temp[i] = -np.log(np.abs(x))
+    # value_ndarray[i] = np.log(np.abs(x))
+  return temp
 

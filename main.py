@@ -59,6 +59,8 @@ def generate_table_meeting():
 
 
 def plot_online_3d():
+  onlineRunPrefix = False
+
   decision = 10
   random = 10
   dx = 5
@@ -69,19 +71,26 @@ def plot_online_3d():
   dynamic_type = "ONLINE"
 
   pddcop_algorithms = ["FORWARD", "HYBRID"]
-  # dcop_algorithms = ["DPOP"]
-  dcop_algorithms = ["MGM"]
+  # pddcop_algorithms = ["FORWARD"]
+  dcop_algorithms = ["DPOP"]
+  # dcop_algorithms = ["MGM"]
 
-  # topologies = ["random", "meeting"]
-  topologies = ["random"]
-  switching_costs = range(0, 11, 2)
+  # topologies = ["random"]
+  topologies = ["meeting"]
+  switching_costs = range(0, 101, 10)
+  # switching_costs = range(0, 11, 2)
   time_durations = range(2000, 4001, 100)
   instances = range(30)
+
+  if switching_costs == range(0, 101, 10):
+    suffix = "_100"
+  elif switching_costs == range(0, 11, 2):
+    suffix = ""
 
   online_average = "online_average_"
   online_max = "online_max_"
   for pdcop_algorithm, dcop_algorithm, topology in itertools.product(pddcop_algorithms, dcop_algorithms, topologies):
-    # break
+    break
 
     average_diff = pd.DataFrame()
     max_diff = pd.DataFrame()
@@ -96,10 +105,12 @@ def plot_online_3d():
             # Get file name
             proactive_file = instance_file_online(dynamic_type, pdcop_algorithm, dcop_algorithm, instance_id, decision,
                                                   random, dx, dy, switching_cost, horizon, discount_factor,
-                                                  heuristic_weight, online_run, topology)
+                                                  heuristic_weight, online_run, topology, onlineRunPrefix)
             reactive_file = instance_file_online(dynamic_type, "REACT", dcop_algorithm, instance_id, decision, random,
                                                  dx, dy, switching_cost, horizon, discount_factor, heuristic_weight,
-                                                 online_run, topology)
+                                                 online_run, topology, onlineRunPrefix)
+            # print(proactive_file)
+            # print(reactive_file)
             # Read CSV instance
             proactive_instance = pd.read_csv(proactive_file, delimiter="\t")
             reactive_instance = pd.read_csv(reactive_file, delimiter="\t")
@@ -113,12 +124,11 @@ def plot_online_3d():
         average_diff.loc[switching_cost, time_duration] = np.average(diff_eff)
         max_diff.loc[switching_cost, time_duration] = np.max(diff_eff)
     # print(online_average + online_alg(pdcop_algorithm, dcop_algorithm) + ".csv")
-    average_diff.to_csv(online_average + online_alg(pdcop_algorithm, dcop_algorithm, topology) + ".csv")
-    max_diff.to_csv(online_max + online_alg(pdcop_algorithm, dcop_algorithm, topology) + ".csv")
+    average_diff.to_csv(online_average + online_alg(pdcop_algorithm, dcop_algorithm, topology) + suffix + ".csv")
+    max_diff.to_csv(online_max + online_alg(pdcop_algorithm, dcop_algorithm, topology) + suffix + ".csv")
 
   for pdcop_algorithm, dcop_algorithm, topology in itertools.product(pddcop_algorithms, dcop_algorithms, topologies):
     plot_3d(time_durations, switching_costs, pdcop_algorithm, dcop_algorithm, topology)
-
 
 
 def generate_table_agents():
@@ -182,6 +192,8 @@ def plot_horizon():
   random = 1
   switching_cost = 50
   discount_factor = 0.9
+  tick_size = 15
+  label_size = 15
   for dynamic_type in ["FINITE_HORIZON", "INFINITE_HORIZON"]:
     fig, ax = plt.subplots()
     for pdcop_algorithm in ["C_DCOP", "FORWARD", "BACKWARD", "LS_RAND", "LS_SDPOP"]:
@@ -226,14 +238,17 @@ def plot_horizon():
 
     # Plot legends
     fig_legend = plt.figure(figsize=(1.5, 1.3))
-    plt.figlegend(*ax.get_legend_handles_labels(), loc='center', ncol=4)
+    plt.figlegend(*ax.get_legend_handles_labels(), fontsize=20, loc='center', ncol=4)
     fig_legend.savefig("horizon_legend.pdf", bbox_inches='tight')
     # End plotting legends
 
-    ax.set_xlabel("Horizon")
-    ax.set_ylabel("Runtime (ms) in log scale")
+    ax.set_xlabel("Horizon", fontsize=label_size)
+    ax.set_ylabel("Runtime (ms) in log scale", fontsize=label_size)
     # plt.legend(loc='best')
+    ax.set_xticks(range(2, 11))
+    ax.set_xticklabels(range(2, 11), fontsize=tick_size)
     ax.set_yticks(range(2, 16, 2))
+    ax.set_yticklabels(range(2, 16, 2), fontsize=tick_size)
     # plt.title(dynamic_type)
     # plt.show()
     fig.savefig("horizon_" + lowercase(dynamic_type) + ".pdf", bbox_inches='tight')
@@ -255,6 +270,8 @@ def plot_switching_cost():
   dynamic_types = ["FINITE_HORIZON", "INFINITE_HORIZON"]
   algorithms = [("LS_SDPOP", "DPOP"), ("LS_SDPOP", "MGM"), ("LS_RAND", "DPOP")]
   # fig_size = (4, 3)
+  tick_size = 15
+  label_size = 15
   for dynamic_type in dynamic_types:
     switching_costs = range(0, 110, 10)
     fig_iteration, ax_iteration = plt.subplots()
@@ -306,21 +323,21 @@ def plot_switching_cost():
       ax_runtime.plot(switching_costs, plot_runtimes, marker="o", label=alg(pdcop_algorithm, dcop_algorithm))
       ax_quality.plot(switching_costs, plot_qualities, marker="x", label=alg(pdcop_algorithm, dcop_algorithm))
     # Plot switching costs
-    ax_iteration.set_xlabel("Switching Cost")
-    ax_iteration.set_ylabel("Number of Iterations")
+    ax_iteration.set_xlabel("Switching Cost", fontsize=label_size)
+    ax_iteration.set_ylabel("Number of Iterations", fontsize=label_size)
     ax_iteration.set_xticks(switching_costs)
-    ax_iteration.set_xticklabels(switching_costs)
+    ax_iteration.set_xticklabels(switching_costs, fontsize=tick_size)
     ax_iteration.set_yticks(range(9))
-    ax_iteration.set_yticklabels(range(9))
+    ax_iteration.set_yticklabels(range(9), fontsize=tick_size)
     fig_iteration.savefig("switching_cost_iteration_" + lowercase(dynamic_type) + ".pdf", bbox_inches='tight')
 
     # Plot runtimes
-    ax_runtime.set_xlabel("Switching Cost")
-    ax_runtime.set_ylabel("Runtime (ms)")
+    ax_runtime.set_xlabel("Switching Cost", fontsize=label_size)
+    ax_runtime.set_ylabel("Runtime (ms)", fontsize=label_size)
     ax_runtime.set_xticks(switching_costs)
-    ax_runtime.set_xticklabels(switching_costs)
+    ax_runtime.set_xticklabels(switching_costs, fontsize=tick_size)
     ax_runtime.set_yticks(range(200, 1400, 200))
-    ax_runtime.set_yticklabels(range(200, 1400, 200))
+    ax_runtime.set_yticklabels(range(200, 1400, 200), fontsize=tick_size)
     fig_runtime.savefig("switching_cost_runtime_" + lowercase(dynamic_type) + ".pdf", bbox_inches='tight')
 
     # Plot runtimes
@@ -361,6 +378,9 @@ def plot_switching_cost_subplot():
   fig.set_figheight(3)
   fig.set_figwidth(10)
   axe_index = 0
+
+  tick_size = 15
+  label_size = 15
   for dynamic_type in dynamic_types:
     for (pdcop_algorithm, dcop_algorithm) in algorithms:
       if (pdcop_algorithm, dcop_algorithm) == ("LS_SDPOP", "DPOP"):
@@ -405,26 +425,28 @@ def plot_switching_cost_subplot():
 
       print(len(plot_iteration), plot_iteration)
       print(len(switching_costs), switching_costs)
-      ax_iteration = axs[0 ,axe_index]
+      ax_iteration = axs[0, axe_index]
       ax_runtime = axs[1, axe_index]
       ax_iteration.plot(switching_costs, plot_iteration, marker="s", label=alg(pdcop_algorithm, dcop_algorithm))
       ax_runtime.plot(switching_costs, plot_runtimes, marker="o", label=alg(pdcop_algorithm, dcop_algorithm))
 
     # Switching costs
-    ax_iteration.set_xlabel("Switching Cost")
-    ax_iteration.set_ylabel("Number of Iterations")
-    ax_iteration.set_xticks(switching_costs)
-    ax_iteration.set_xticklabels(switching_costs)
+    ax_iteration.set_xlabel("Switching Cost", fontsize=label_size)
+    ax_iteration.set_ylabel("Number of Iterations", fontsize=label_size)
+    ax_iteration.set_xticks(switching_costs, )
+    ax_iteration.set_xticklabels(switching_costs, fontsize=tick_size)
     ax_iteration.set_yticks(range(9))
-    ax_iteration.set_yticklabels(range(9))
+    ax_iteration.set_yticklabels(range(9), fontsize=tick_size)
     # Runtime
-    ax_runtime.set_xlabel("Switching Cost")
-    ax_runtime.set_ylabel("Runtime (ms)")
+    ax_runtime.set_xlabel("Switching Cost", fontsize=label_size)
+    ax_runtime.set_ylabel("Runtime (ms)", fontsize=label_size)
     ax_runtime.set_xticks(switching_costs)
-    ax_runtime.set_xticklabels(switching_costs)
+    ax_runtime.set_xticklabels(switching_costs, fontsize=tick_size)
     ax_runtime.set_yticks(range(200, 1400, 200))
-    ax_runtime.set_yticklabels(range(200, 1400, 200))
+    ax_runtime.set_yticklabels(range(200, 1400, 200), fontsize=tick_size)
     axe_index = axe_index + 1;
+    plt.savefig()
+
   fig.tight_layout()
   fig.savefig("switching_cost.pdf", bbox_inches='tight')
 
@@ -450,6 +472,9 @@ def plot_heuristic():
   horizon = 4
   switching_cost = 50
   discount_factor = 0.9
+
+  tick_size = 15
+  label_size = 15
   for dynamic_type in ["INFINITE_HORIZON", "FINITE_HORIZON"]:
     quality = []
     runtime = []
@@ -473,12 +498,16 @@ def plot_heuristic():
       runtime.append(np.mean(result.iloc[0:29, 2]))
       print(quality)
       print(runtime)
-    fig, ax = plt.figure()
+    # fig, ax = plt.figure()
+    fig, ax = plt.subplots()
     ax.plot(runtime, marker="s")
-    ax.set_xlabel("Heuristic Weights")
-    ax.set_ylabel("Runtime (ms)")
+    ax.set_xlabel("Heuristic Weights", fontsize=label_size)
+    ax.set_ylabel("Runtime (ms)", fontsize=label_size)
+    ax.set_xticks(np.arange(0, 10.1, 1))
+    ax.set_xticklabels(["%.1f" % x for x in np.arange(0, 1.1, 0.1)], fontsize=tick_size)
     # plt.title(dynamic_type)
     ax.set_yticks(range(250, 501, 50))
+    ax.set_yticklabels([y for y in range(250, 501, 50)], fontsize=tick_size)
     # plt.show()
     fig.savefig("heuristic_" + lowercase(dynamic_type) + ".pdf", bbox_inches='tight')
   plt.cla()
@@ -490,5 +519,7 @@ def plot_heuristic():
 
 
 if __name__ == "__main__":
-  plot_online_3d()
+  plot_horizon()
+  # plot_online_3d()
+
 
