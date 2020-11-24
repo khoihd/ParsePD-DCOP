@@ -192,13 +192,20 @@ def plot_horizon():
   random = 1
   switching_cost = 50
   discount_factor = 0.9
-  tick_size = 15
-  label_size = 15
+  tick_size = 10
+  label_size = 10
+
+  line_types = ['--', '--']
+  markers = ['o', 's', '*', 'X']
+
+
   for dynamic_type in ["FINITE_HORIZON", "INFINITE_HORIZON"]:
     fig, ax = plt.subplots()
+    index = -1
     for pdcop_algorithm in ["C_DCOP", "FORWARD", "BACKWARD", "LS_RAND", "LS_SDPOP"]:
       for dcop_algorithm in ["DPOP", "MGM"]:
-        marker = marker + 1
+        # marker = marker + 1
+        index += 1
         if pdcop_algorithm == "C_DCOP" and dcop_algorithm == "DPOP":
           horizons = range(2, 4)
         elif pdcop_algorithm == "C_DCOP" and dcop_algorithm == "MGM":
@@ -234,11 +241,11 @@ def plot_horizon():
           quality.append(np.mean(result.iloc[:, 1]))
           runtime.append(np.mean(result.iloc[:, 2]))
           print(pdcop_algorithm + "_" + dcop_algorithm + "_" + dynamic_type)
-        ax.plot(horizons, np.log(runtime), marker="s", label=alg(pdcop_algorithm, dcop_algorithm))
+        ax.plot(horizons, np.log(runtime), label=alg(pdcop_algorithm, dcop_algorithm), marker=markers[index % 4], linestyle=line_types[index % 2], markersize=3)
 
     # Plot legends
     fig_legend = plt.figure(figsize=(1.5, 1.3))
-    plt.figlegend(*ax.get_legend_handles_labels(), fontsize=20, loc='center', ncol=4)
+    plt.figlegend(*ax.get_legend_handles_labels(), fontsize=8, loc='center', ncol=4, markerscale=1)
     fig_legend.savefig("horizon_legend.pdf", bbox_inches='tight')
     # End plotting legends
 
